@@ -76,7 +76,24 @@
           const [currentDecision, setCurrentDecision] = useState(null);
           const [showConsequence, setShowConsequence] = useState(null);
           const [shake, setShake] = useState(false);
+          const [isProcessing, setIsProcessing] = useState(false);
           const timerRef = useRef(null);
+          const hasAutoSelected = useRef(false);
+
+          // Load first decision on mount
+          useEffect(() => {
+            if (!currentDecision && gameState.round === 1) {
+              const firstDecision = policyDecisions[0];
+              setCurrentDecision(firstDecision);
+            }
+          }, []);
+
+          // Reset auto-select flag when new decision loads
+          useEffect(() => {
+            if (currentDecision) {
+              hasAutoSelected.current = false;
+            }
+          }, [currentDecision]);
 
           // Policy decisions database
           const policyDecisions = [
@@ -195,41 +212,57 @@
 
           // Timer countdown
           useEffect(() => {
-            if (gameState.gameOver || !currentDecision) return;
+            if (gameState.gameOver || !currentDecision || showConsequence) return;
 
             timerRef.current = setInterval(() => {
               setGameState(prev => {
                 if (prev.timeLeft <= 1) {
-                  // Time's up - make a random choice
-                  const randomChoice = currentDecision.options[Math.floor(Math.random() * currentDecision.options.length)];
-                  handleDecision(randomChoice, true);
                   return prev;
                 }
                 return { ...prev, timeLeft: prev.timeLeft - 1 };
               });
             }, 1000);
 
-            return () => clearInterval(timerRef.current);
-          }, [currentDecision, gameState.gameOver]);
+            return () => {
+              if (timerRef.current) {
+                clearInterval(timerRef.current);
+              }
+            };
+          }, [currentDecision, gameState.gameOver, showConsequence]);
+
+          // Auto-select when time runs out
+          useEffect(() => {
+            if (gameState.timeLeft === 0 && currentDecision && !showConsequence && !hasAutoSelected.current) {
+              hasAutoSelected.current = true;
+              const randomChoice = currentDecision.options[Math.floor(Math.random() * currentDecision.options.length)];
+              handleDecision(randomChoice, true);
+            }
+          }, [gameState.timeLeft, currentDecision, showConsequence]);
 
           // Get next decision
           useEffect(() => {
-            if (!currentDecision && !gameState.gameOver && gameState.round <= gameState.maxRounds) {
+            if (!currentDecision && !gameState.gameOver && !showConsequence && gameState.round <= gameState.maxRounds) {
               const availableDecisions = policyDecisions.filter(
                 d => !gameState.decisions.find(dec => dec.id === d.id)
               );
               
-              if (availableDecisions.length > 0) {
+              if (availableDecisions.length > 0 && gameState.round <= gameState.maxRounds) {
                 const nextDecision = availableDecisions[Math.floor(Math.random() * availableDecisions.length)];
                 setCurrentDecision(nextDecision);
                 setGameState(prev => ({ ...prev, timeLeft: 30 }));
-              } else {
-                endGame();
               }
             }
-          }, [currentDecision, gameState.round, gameState.gameOver]);
+          }, [currentDecision, gameState.round, gameState.gameOver, showConsequence]);
 
           const handleDecision = (option, timeout = false) => {
+            if (isProcessing) return;
+            setIsProcessing(true);
+            
+            // Clear timer immediately
+            if (timerRef.current) {
+              clearInterval(timerRef.current);
+            }
+
             const newCarbon = Math.max(0, gameState.carbonBudget - option.carbon);
             const newTemp = gameState.temperature + option.temp;
             const newScore = gameState.score + (option.carbon < 0 ? 100 : option.carbon > 30 ? -50 : 0);
@@ -266,32 +299,43 @@
               score: newScore,
               decisions: [...prev.decisions, { ...currentDecision, choice: option }],
               consequences: [...prev.consequences, consequenceMsg],
-              round: prev.round + 1
+              round: prev.round + 1,
+              timeLeft: 30
             }));
 
             setCurrentDecision(null);
 
-            // Check game over conditions
+            // Check game over conditions after showing consequence
             setTimeout(() => {
+              setShowConsequence(null);
+              setIsProcessing(false);
+              
               if (newCarbon <= 0) {
                 endGame(false, 'Carbon budget exhausted!');
               } else if (newTemp >= 3.0) {
                 endGame(false, 'Temperature rise too severe!');
-              } else if (gameState.round >= gameState.maxRounds) {
+              } else if (gameState.round + 1 > gameState.maxRounds) {
                 endGame(true);
               }
-              setShowConsequence(null);
             }, 3000);
           };
 
           const endGame = (won = null, reason = '') => {
+            if (timerRef.current) {
+              clearInterval(timerRef.current);
+            }
+            
             const finalWon = won !== null ? won : (gameState.temperature < 2.0 && gameState.carbonBudget > 0);
+            
             setGameState(prev => ({
               ...prev,
               gameOver: true,
               won: finalWon,
               gameOverReason: reason
             }));
+            
+            setCurrentDecision(null);
+            setShowConsequence(null);
           };
 
           const getTemperatureColor = () => {
@@ -508,6 +552,7 @@
                       <button
                         key={idx}
                         onClick={() => handleDecision(option)}
+                        disabled={isProcessing}
                         style={{
                           padding: '20px',
                           background: option.carbon < 0 ? 'rgba(74, 222, 128, 0.2)' : 
@@ -520,13 +565,16 @@
                           color: '#fff',
                           fontSize: '16px',
                           fontWeight: 'bold',
-                          cursor: 'pointer',
+                          cursor: isProcessing ? 'not-allowed' : 'pointer',
                           transition: 'all 0.3s',
-                          textAlign: 'left'
+                          textAlign: 'left',
+                          opacity: isProcessing ? 0.6 : 1
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'scale(1.05)';
-                          e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.3)';
+                          if (!isProcessing) {
+                            e.currentTarget.style.transform = 'scale(1.05)';
+                            e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.3)';
+                          }
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.transform = 'scale(1)';
