@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carbon Budget Countdown - Climate Education Game</title>
+    
+    <!-- Load React from CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+        }
+        #root {
+            width: 100%;
+            min-height: 100vh;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateY(-100px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        .shake {
+            animation: shake 0.5s;
+        }
+        .pulse {
+            animation: pulse 0.8s ease-in-out;
+        }
+        .slide-in {
+            animation: slideIn 0.5s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const CarbonBudgetGame = () => {
+          const [gameState, setGameState] = useState({
+            carbonBudget: 500, // GtCO2 remaining
+            temperature: 1.1, // Current global temperature rise
+            year: 2024,
+            score: 0,
+            gameOver: false,
+            won: false,
+            decisions: [],
+            consequences: [],
+            timeLeft: 60, // 60 seconds per round
+            round: 1,
+            maxRounds: 10
+          });
+
+          const [currentDecision, setCurrentDecision] = useState(null);
+          const [showConsequence, setShowConsequence] = useState(null);
+          const [shake, setShake] = useState(false);
+          const timerRef = useRef(null);
+
+          // Policy decisions database
+          const policyDecisions = [
+            // Energy decisions
+            {
+              id: 1,
+              category: 'Energy',
+              question: 'Your country needs new power capacity. What do you build?',
+              options: [
+                { text: 'Coal Power Plant', carbon: 50, cost: -10, impact: 'Cheap but highly polluting', temp: 0.15 },
+                { text: 'Natural Gas Plant', carbon: 25, cost: -15, impact: 'Moderate emissions', temp: 0.08 },
+                { text: 'Solar + Wind Farm', carbon: 2, cost: -30, impact: 'Clean but expensive initially', temp: -0.02 },
+                { text: 'Nuclear Plant', carbon: 3, cost: -50, impact: 'Very clean, very expensive, slow to build', temp: -0.01 }
+              ]
+            },
+            {
+              id: 2,
+              category: 'Transportation',
+              question: 'How should your country modernize transportation?',
+              options: [
+                { text: 'Expand Highways', carbon: 40, cost: -20, impact: 'Encourages car dependency', temp: 0.12 },
+                { text: 'Improve Public Transit', carbon: 10, cost: -25, impact: 'Reduces car usage', temp: 0.03 },
+                { text: 'EV Incentives + Charging', carbon: 5, cost: -35, impact: 'Accelerates EV adoption', temp: -0.05 },
+                { text: 'Ban Gas Cars by 2030', carbon: -10, cost: -40, impact: 'Aggressive but effective', temp: -0.12 }
+              ]
+            },
+            {
+              id: 3,
+              category: 'Forests',
+              question: 'A company wants to clear rainforest for agriculture. Your decision?',
+              options: [
+                { text: 'Approve Deforestation', carbon: 60, cost: 30, impact: 'Short-term economic gain, massive emissions', temp: 0.18 },
+                { text: 'Allow Limited Clearing', carbon: 30, cost: 10, impact: 'Compromise position', temp: 0.09 },
+                { text: 'Deny and Protect Forest', carbon: -5, cost: -15, impact: 'Preserves carbon sink', temp: -0.08 },
+                { text: 'Reforest + Carbon Credits', carbon: -20, cost: -25, impact: 'Active carbon removal', temp: -0.15 }
+              ]
+            },
+            {
+              id: 4,
+              category: 'Industry',
+              question: 'Heavy industry needs to reduce emissions. What policy?',
+              options: [
+                { text: 'No Regulations', carbon: 45, cost: 20, impact: 'Industry grows unchecked', temp: 0.14 },
+                { text: 'Carbon Tax', carbon: 15, cost: -10, impact: 'Creates incentive to reduce', temp: 0.04 },
+                { text: 'Emission Standards', carbon: 10, cost: -20, impact: 'Forces upgrades', temp: 0.02 },
+                { text: 'Green Industry Subsidies', carbon: -5, cost: -40, impact: 'Accelerates transition', temp: -0.10 }
+              ]
+            },
+            {
+              id: 5,
+              category: 'Agriculture',
+              question: 'How should your country transform food production?',
+              options: [
+                { text: 'Expand Cattle Ranching', carbon: 55, cost: 15, impact: 'High methane emissions', temp: 0.16 },
+                { text: 'Status Quo Farming', carbon: 25, cost: 0, impact: 'No change', temp: 0.07 },
+                { text: 'Regenerative Agriculture', carbon: 5, cost: -20, impact: 'Soil carbon capture', temp: -0.05 },
+                { text: 'Plant-Based + Lab Meat', carbon: -10, cost: -35, impact: 'Revolutionary but challenging', temp: -0.12 }
+              ]
+            },
+            {
+              id: 6,
+              category: 'Buildings',
+              question: 'New building codes are being developed. What do you mandate?',
+              options: [
+                { text: 'No Efficiency Standards', carbon: 35, cost: 10, impact: 'Cheap construction, high emissions', temp: 0.11 },
+                { text: 'Basic Insulation', carbon: 20, cost: -5, impact: 'Modest improvements', temp: 0.06 },
+                { text: 'Net-Zero Buildings', carbon: 0, cost: -30, impact: 'All-electric, highly insulated', temp: -0.08 },
+                { text: 'Carbon-Negative Materials', carbon: -15, cost: -45, impact: 'Cutting-edge technology', temp: -0.14 }
+              ]
+            },
+            {
+              id: 7,
+              category: 'Energy',
+              question: 'An oil company wants drilling permits. Your response?',
+              options: [
+                { text: 'Approve New Drilling', carbon: 70, cost: 25, impact: 'Locks in fossil fuel use', temp: 0.20 },
+                { text: 'Approve with Conditions', carbon: 40, cost: 10, impact: 'Some restrictions', temp: 0.12 },
+                { text: 'Deny Permits', carbon: 10, cost: -10, impact: 'Blocks expansion', temp: 0.02 },
+                { text: 'Ban + Just Transition Fund', carbon: -5, cost: -50, impact: 'Supports affected workers', temp: -0.10 }
+              ]
+            },
+            {
+              id: 8,
+              category: 'Technology',
+              question: 'Should your country invest in carbon removal technology?',
+              options: [
+                { text: 'No Investment', carbon: 0, cost: 0, impact: 'Saves money now', temp: 0 },
+                { text: 'Research Only', carbon: -5, cost: -15, impact: 'Long-term potential', temp: -0.03 },
+                { text: 'Deploy Direct Air Capture', carbon: -25, cost: -60, impact: 'Expensive but removes CO2', temp: -0.18 },
+                { text: 'Nature + Tech Hybrid', carbon: -20, cost: -40, impact: 'Balanced approach', temp: -0.15 }
+              ]
+            },
+            {
+              id: 9,
+              category: 'International',
+              question: 'Neighboring countries want climate cooperation. What level?',
+              options: [
+                { text: 'No Commitment', carbon: 30, cost: 10, impact: 'Go it alone', temp: 0.10 },
+                { text: 'Share Research', carbon: 10, cost: -5, impact: 'Limited cooperation', temp: 0.03 },
+                { text: 'Joint Carbon Market', carbon: -10, cost: -25, impact: 'Regional coordination', temp: -0.08 },
+                { text: 'Full Climate Alliance', carbon: -30, cost: -45, impact: 'Maximum cooperation', temp: -0.20 }
+              ]
+            },
+            {
+              id: 10,
+              category: 'Adaptation',
+              question: 'Climate impacts are increasing. How much do you invest in adaptation?',
+              options: [
+                { text: 'Minimal Spending', carbon: 0, cost: 5, impact: 'Communities vulnerable', temp: 0 },
+                { text: 'Basic Infrastructure', carbon: 0, cost: -15, impact: 'Some protection', temp: 0 },
+                { text: 'Comprehensive Resilience', carbon: 0, cost: -35, impact: 'Strong adaptation', temp: 0 },
+                { text: 'Climate-Proof Everything', carbon: 0, cost: -60, impact: 'Maximum protection', temp: 0 }
+              ]
+            }
+          ];
+
+          // Timer countdown
+          useEffect(() => {
+            if (gameState.gameOver || !currentDecision) return;
+
+            timerRef.current = setInterval(() => {
+              setGameState(prev => {
+                if (prev.timeLeft <= 1) {
+                  // Time's up - make a random choice
+                  const randomChoice = currentDecision.options[Math.floor(Math.random() * currentDecision.options.length)];
+                  handleDecision(randomChoice, true);
+                  return prev;
+                }
+                return { ...prev, timeLeft: prev.timeLeft - 1 };
+              });
+            }, 1000);
+
+            return () => clearInterval(timerRef.current);
+          }, [currentDecision, gameState.gameOver]);
+
+          // Get next decision
+          useEffect(() => {
+            if (!currentDecision && !gameState.gameOver && gameState.round <= gameState.maxRounds) {
+              const availableDecisions = policyDecisions.filter(
+                d => !gameState.decisions.find(dec => dec.id === d.id)
+              );
+              
+              if (availableDecisions.length > 0) {
+                const nextDecision = availableDecisions[Math.floor(Math.random() * availableDecisions.length)];
+                setCurrentDecision(nextDecision);
+                setGameState(prev => ({ ...prev, timeLeft: 30 }));
+              } else {
+                endGame();
+              }
+            }
+          }, [currentDecision, gameState.round, gameState.gameOver]);
+
+          const handleDecision = (option, timeout = false) => {
+            const newCarbon = Math.max(0, gameState.carbonBudget - option.carbon);
+            const newTemp = gameState.temperature + option.temp;
+            const newScore = gameState.score + (option.carbon < 0 ? 100 : option.carbon > 30 ? -50 : 0);
+
+            // Create consequence message
+            let consequenceMsg = {
+              title: timeout ? '⏰ Time Ran Out!' : option.text,
+              impact: option.impact,
+              carbon: option.carbon,
+              temp: option.temp,
+              type: option.carbon > 30 ? 'bad' : option.carbon < 0 ? 'good' : 'neutral'
+            };
+
+            // Add special consequences based on temperature
+            if (newTemp >= 2.0 && gameState.temperature < 2.0) {
+              consequenceMsg.warning = '🌡️ CRITICAL: Exceeded 2°C target! Severe climate impacts likely.';
+            } else if (newTemp >= 1.5 && gameState.temperature < 1.5) {
+              consequenceMsg.warning = '⚠️ WARNING: Exceeded 1.5°C target! Increased extreme weather.';
+            }
+
+            setShowConsequence(consequenceMsg);
+            
+            if (option.carbon > 30) {
+              setShake(true);
+              setTimeout(() => setShake(false), 500);
+            }
+
+            // Update game state
+            setGameState(prev => ({
+              ...prev,
+              carbonBudget: newCarbon,
+              temperature: Math.max(1.1, newTemp),
+              year: prev.year + 1,
+              score: newScore,
+              decisions: [...prev.decisions, { ...currentDecision, choice: option }],
+              consequences: [...prev.consequences, consequenceMsg],
+              round: prev.round + 1
+            }));
+
+            setCurrentDecision(null);
+
+            // Check game over conditions
+            setTimeout(() => {
+              if (newCarbon <= 0) {
+                endGame(false, 'Carbon budget exhausted!');
+              } else if (newTemp >= 3.0) {
+                endGame(false, 'Temperature rise too severe!');
+              } else if (gameState.round >= gameState.maxRounds) {
+                endGame(true);
+              }
+              setShowConsequence(null);
+            }, 3000);
+          };
+
+          const endGame = (won = null, reason = '') => {
+            const finalWon = won !== null ? won : (gameState.temperature < 2.0 && gameState.carbonBudget > 0);
+            setGameState(prev => ({
+              ...prev,
+              gameOver: true,
+              won: finalWon,
+              gameOverReason: reason
+            }));
+          };
+
+          const getTemperatureColor = () => {
+            if (gameState.temperature < 1.5) return '#4ade80';
+            if (gameState.temperature < 2.0) return '#fbbf24';
+            if (gameState.temperature < 2.5) return '#fb923c';
+            return '#ef4444';
+          };
+
+          const getTemperatureLabel = () => {
+            if (gameState.temperature < 1.5) return '✅ Safe Zone';
+            if (gameState.temperature < 2.0) return '⚠️ Caution';
+            if (gameState.temperature < 2.5) return '🔥 Dangerous';
+            return '🚨 Catastrophic';
+          };
+
+          const getBudgetColor = () => {
+            if (gameState.carbonBudget > 300) return '#4ade80';
+            if (gameState.carbonBudget > 150) return '#fbbf24';
+            if (gameState.carbonBudget > 50) return '#fb923c';
+            return '#ef4444';
+          };
+
+          return (
+            <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+              {/* Header */}
+              <div style={{
+                textAlign: 'center',
+                marginBottom: '30px',
+                padding: '20px',
+                background: 'rgba(255,255,255,0.1)',
+                borderRadius: '15px',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <h1 style={{ margin: '0 0 10px 0', fontSize: '36px' }}>
+                  🌍 Carbon Budget Countdown
+                </h1>
+                <p style={{ margin: '0', fontSize: '18px', opacity: 0.9 }}>
+                  Can you keep global temperature rise under 2°C?
+                </p>
+              </div>
+
+              {/* Stats Dashboard */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                gap: '20px',
+                marginBottom: '30px'
+              }}>
+                {/* Carbon Budget */}
+                <div className={shake ? 'shake' : ''} style={{
+                  padding: '20px',
+                  background: 'rgba(255,255,255,0.1)',
+                  borderRadius: '15px',
+                  border: `3px solid ${getBudgetColor()}`,
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '10px' }}>
+                    Carbon Budget Remaining
+                  </div>
+                  <div style={{ fontSize: '36px', fontWeight: 'bold', color: getBudgetColor() }}>
+                    {gameState.carbonBudget.toFixed(0)}
+                  </div>
+                  <div style={{ fontSize: '12px', opacity: 0.7 }}>
+                    GtCO₂ (of 500 GtCO₂)
+                  </div>
+                  <div style={{
+                    marginTop: '10px',
+                    height: '8px',
+                    background: 'rgba(255,255,255,0.2)',
+                    borderRadius: '4px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${(gameState.carbonBudget / 500) * 100}%`,
+                      height: '100%',
+                      background: getBudgetColor(),
+                      transition: 'width 0.5s'
+                    }} />
+                  </div>
+                </div>
+
+                {/* Temperature */}
+                <div style={{
+                  padding: '20px',
+                  background: 'rgba(255,255,255,0.1)',
+                  borderRadius: '15px',
+                  border: `3px solid ${getTemperatureColor()}`,
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '10px' }}>
+                    Global Temperature Rise
+                  </div>
+                  <div style={{ fontSize: '36px', fontWeight: 'bold', color: getTemperatureColor() }}>
+                    +{gameState.temperature.toFixed(2)}°C
+                  </div>
+                  <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '10px' }}>
+                    {getTemperatureLabel()}
+                  </div>
+                  {/* Temperature markers */}
+                  <div style={{ position: 'relative', height: '30px', marginTop: '15px' }}>
+                    <div style={{
+                      position: 'absolute',
+                      left: '33%',
+                      top: 0,
+                      height: '100%',
+                      width: '2px',
+                      background: '#fbbf24',
+                      opacity: 0.5
+                    }} />
+                    <div style={{
+                      position: 'absolute',
+                      left: '33%',
+                      top: '-5px',
+                      fontSize: '10px',
+                      color: '#fbbf24'
+                    }}>1.5°C</div>
+                    <div style={{
+                      position: 'absolute',
+                      left: '66%',
+                      top: 0,
+                      height: '100%',
+                      width: '2px',
+                      background: '#ef4444',
+                      opacity: 0.5
+                    }} />
+                    <div style={{
+                      position: 'absolute',
+                      left: '66%',
+                      top: '-5px',
+                      fontSize: '10px',
+                      color: '#ef4444'
+                    }}>2.0°C</div>
+                    <div style={{
+                      position: 'absolute',
+                      left: `${Math.min((gameState.temperature - 1.1) / 1.9 * 100, 100)}%`,
+                      top: '10px',
+                      fontSize: '20px',
+                      transform: 'translateX(-50%)'
+                    }}>🌡️</div>
+                  </div>
+                </div>
+
+                {/* Progress */}
+                <div style={{
+                  padding: '20px',
+                  background: 'rgba(255,255,255,0.1)',
+                  borderRadius: '15px',
+                  border: '3px solid #8b5cf6',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '10px' }}>
+                    Round {gameState.round}/{gameState.maxRounds}
+                  </div>
+                  <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#8b5cf6' }}>
+                    {gameState.year}
+                  </div>
+                  <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '10px' }}>
+                    Score: {gameState.score}
+                  </div>
+                  {currentDecision && (
+                    <div style={{ marginTop: '10px' }}>
+                      <div style={{ fontSize: '14px', marginBottom: '5px' }}>
+                        Time: {gameState.timeLeft}s
+                      </div>
+                      <div style={{
+                        height: '8px',
+                        background: 'rgba(255,255,255,0.2)',
+                        borderRadius: '4px',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{
+                          width: `${(gameState.timeLeft / 30) * 100}%`,
+                          height: '100%',
+                          background: gameState.timeLeft < 10 ? '#ef4444' : '#8b5cf6',
+                          transition: 'width 1s linear'
+                        }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Current Decision */}
+              {currentDecision && !showConsequence && !gameState.gameOver && (
+                <div className="slide-in" style={{
+                  padding: '30px',
+                  background: 'rgba(255,255,255,0.15)',
+                  borderRadius: '20px',
+                  border: '3px solid #3b82f6',
+                  marginBottom: '30px',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <div style={{
+                    display: 'inline-block',
+                    padding: '8px 16px',
+                    background: '#3b82f6',
+                    borderRadius: '20px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    marginBottom: '15px'
+                  }}>
+                    {currentDecision.category}
+                  </div>
+                  <h2 style={{ margin: '0 0 30px 0', fontSize: '28px' }}>
+                    {currentDecision.question}
+                  </h2>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                    gap: '15px'
+                  }}>
+                    {currentDecision.options.map((option, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleDecision(option)}
+                        style={{
+                          padding: '20px',
+                          background: option.carbon < 0 ? 'rgba(74, 222, 128, 0.2)' : 
+                                      option.carbon > 30 ? 'rgba(239, 68, 68, 0.2)' : 
+                                      'rgba(251, 191, 36, 0.2)',
+                          border: `2px solid ${option.carbon < 0 ? '#4ade80' : 
+                                               option.carbon > 30 ? '#ef4444' : 
+                                               '#fbbf24'}`,
+                          borderRadius: '12px',
+                          color: '#fff',
+                          fontSize: '16px',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s',
+                          textAlign: 'left'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                          e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.3)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'scale(1)';
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
+                      >
+                        <div style={{ marginBottom: '10px' }}>{option.text}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '8px' }}>
+                          {option.impact}
+                        </div>
+                        <div style={{ fontSize: '12px', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>{option.carbon > 0 ? '+' : ''}{option.carbon} GtCO₂</span>
+                          <span>{option.temp > 0 ? '+' : ''}{option.temp.toFixed(2)}°C</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Consequence Card */}
+              {showConsequence && (
+                <div className="slide-in pulse" style={{
+                  padding: '30px',
+                  background: showConsequence.type === 'good' ? 'rgba(74, 222, 128, 0.3)' :
+                             showConsequence.type === 'bad' ? 'rgba(239, 68, 68, 0.3)' :
+                             'rgba(251, 191, 36, 0.3)',
+                  borderRadius: '20px',
+                  border: `3px solid ${showConsequence.type === 'good' ? '#4ade80' :
+                                       showConsequence.type === 'bad' ? '#ef4444' :
+                                       '#fbbf24'}`,
+                  marginBottom: '30px',
+                  textAlign: 'center'
+                }}>
+                  <h2 style={{ margin: '0 0 15px 0', fontSize: '32px' }}>
+                    {showConsequence.title}
+                  </h2>
+                  <p style={{ fontSize: '18px', margin: '0 0 20px 0' }}>
+                    {showConsequence.impact}
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', fontSize: '24px', fontWeight: 'bold' }}>
+                    <div>
+                      Carbon: <span style={{ color: showConsequence.carbon < 0 ? '#4ade80' : '#ef4444' }}>
+                        {showConsequence.carbon > 0 ? '+' : ''}{showConsequence.carbon} GtCO₂
+                      </span>
+                    </div>
+                    <div>
+                      Temp: <span style={{ color: showConsequence.temp < 0 ? '#4ade80' : '#ef4444' }}>
+                        {showConsequence.temp > 0 ? '+' : ''}{showConsequence.temp.toFixed(2)}°C
+                      </span>
+                    </div>
+                  </div>
+                  {showConsequence.warning && (
+                    <div style={{
+                      marginTop: '20px',
+                      padding: '15px',
+                      background: 'rgba(239, 68, 68, 0.4)',
+                      borderRadius: '10px',
+                      fontSize: '18px',
+                      fontWeight: 'bold'
+                    }}>
+                      {showConsequence.warning}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Game Over Screen */}
+              {gameState.gameOver && (
+                <div style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0,0,0,0.9)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 1000
+                }}>
+                  <div style={{
+                    padding: '40px',
+                    background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+                    borderRadius: '20px',
+                    border: `4px solid ${gameState.won ? '#4ade80' : '#ef4444'}`,
+                    maxWidth: '600px',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ fontSize: '80px', marginBottom: '20px' }}>
+                      {gameState.won ? '🎉' : '😰'}
+                    </div>
+                    <h2 style={{ fontSize: '36px', margin: '0 0 20px 0' }}>
+                      {gameState.won ? 'Success!' : 'Game Over'}
+                    </h2>
+                    
+                    {gameState.gameOverReason && (
+                      <p style={{ fontSize: '20px', margin: '0 0 30px 0', color: '#ef4444' }}>
+                        {gameState.gameOverReason}
+                      </p>
+                    )}
+
+                    <div style={{ 
+                      background: 'rgba(255,255,255,0.1)', 
+                      padding: '20px', 
+                      borderRadius: '10px',
+                      marginBottom: '20px'
+                    }}>
+                      <div style={{ fontSize: '18px', marginBottom: '15px' }}>
+                        <strong>Final Results:</strong>
+                      </div>
+                      <div style={{ display: 'grid', gap: '10px', textAlign: 'left', maxWidth: '400px', margin: '0 auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Temperature Rise:</span>
+                          <strong style={{ color: getTemperatureColor() }}>
+                            +{gameState.temperature.toFixed(2)}°C
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Carbon Budget Left:</span>
+                          <strong style={{ color: getBudgetColor() }}>
+                            {gameState.carbonBudget.toFixed(0)} GtCO₂
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Final Year:</span>
+                          <strong>{gameState.year}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Score:</span>
+                          <strong style={{ color: '#8b5cf6' }}>{gameState.score}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '16px', opacity: 0.9, marginBottom: '30px', lineHeight: '1.6' }}>
+                      {gameState.temperature < 1.5 ? (
+                        '🌟 Outstanding! You kept warming under 1.5°C - the most ambitious climate target!'
+                      ) : gameState.temperature < 2.0 ? (
+                        '✅ Good job! You stayed within the 2°C Paris Agreement target.'
+                      ) : gameState.temperature < 2.5 ? (
+                        '⚠️ Exceeded safe limits. Major climate impacts expected.'
+                      ) : (
+                        '🚨 Catastrophic warming. Severe global consequences.'
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => window.location.reload()}
+                      style={{
+                        padding: '15px 40px',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        background: '#3b82f6',
+                        border: 'none',
+                        borderRadius: '10px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#2563eb'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#3b82f6'}
+                    >
+                      Play Again
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Educational Section */}
+              <div style={{
+                padding: '30px',
+                background: 'rgba(255,255,255,0.1)',
+                borderRadius: '15px',
+                border: '2px solid #4ade80',
+                marginTop: '40px',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <h3 style={{ margin: '0 0 20px 0', color: '#4ade80', fontSize: '24px' }}>
+                  📚 Understanding Carbon Budgets
+                </h3>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#87CEEB', marginBottom: '10px' }}>🌡️ What is a Carbon Budget?</h4>
+                  <p style={{ lineHeight: '1.7', opacity: 0.9, margin: 0 }}>
+                    A <strong>carbon budget</strong> is the maximum amount of CO₂ we can emit while still limiting global 
+                    warming to a specific temperature target. Think of it like a bank account - every ton of CO₂ we emit 
+                    "withdraws" from this budget. To stay under 1.5°C warming, we have roughly <strong>500 gigatons of CO₂ 
+                    remaining</strong> (as of 2020). At current emission rates (~40 Gt/year), we'd exhaust this in about 12 years.
+                  </p>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#FFD700', marginBottom: '10px' }}>⏰ Why the Urgency?</h4>
+                  <p style={{ lineHeight: '1.7', opacity: 0.9', margin: 0 }}>
+                    Every decision matters because CO₂ stays in the atmosphere for <strong>hundreds of years</strong>. A coal 
+                    plant built today will emit for 30-40 years. Each fraction of a degree of warming brings more severe impacts: 
+                    stronger hurricanes, longer droughts, deadly heat waves, and sea-level rise affecting millions. The difference 
+                    between 1.5°C and 2°C warming could mean <strong>hundreds of millions more people</strong> facing water scarcity 
+                    and extreme weather.
+                  </p>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#32CD32', marginBottom: '10px' }}>💡 Policy Choices Matter</h4>
+                  <p style={{ lineHeight: '1.7', opacity: 0.9', margin: 0 }}>
+                    This game shows how <strong>policy decisions cascade</strong>. Building fossil fuel infrastructure locks in 
+                    emissions for decades. But investing in clean energy, protecting forests, and transforming agriculture can 
+                    actually <strong>remove carbon</strong> from the atmosphere. Real-world policymakers face these exact trade-offs 
+                    between short-term economic pressure and long-term climate stability.
+                  </p>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#9370DB', marginBottom: '10px' }}>🌍 The Real-World Challenge</h4>
+                  <p style={{ lineHeight: '1.7', opacity: 0.9', margin: 0 }}>
+                    Countries worldwide are racing to reduce emissions while maintaining economic growth. Solutions include 
+                    <strong> renewable energy</strong> (solar/wind costs dropped 90% since 2010), <strong>electrification</strong> 
+                    (EVs, heat pumps), <strong>carbon pricing</strong> (making pollution expensive), and <strong>nature-based 
+                    solutions</strong> (reforestation, regenerative agriculture). The technology exists - the challenge is political 
+                    will and speed of deployment.
+                  </p>
+                </div>
+
+                <div style={{
+                  background: 'rgba(74, 222, 128, 0.2)',
+                  padding: '20px',
+                  borderRadius: '10px',
+                  borderLeft: '4px solid #4ade80'
+                }}>
+                  <strong style={{ color: '#4ade80', fontSize: '16px' }}>🎯 Key Takeaway:</strong>
+                  <p style={{ margin: '10px 0 0 0', lineHeight: '1.7', fontSize: '15px' }}>
+                    We're in a critical decade. The decisions made between now and 2030 will determine whether we limit warming 
+                    to relatively safe levels or face catastrophic climate change. Every policy choice - from energy to agriculture 
+                    to transportation - directly impacts our remaining carbon budget. The good news? <strong>We have the technology 
+                    to solve this</strong> - what we need is rapid, coordinated action.
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        // Render the app
+        ReactDOM.render(<CarbonBudgetGame />, document.getElementById('root'));
+    </script>
+</body>
+</html>
